@@ -1,7 +1,9 @@
-(module fsm-atek-02 GOVERNANCE
-    (use free.fsyc-pre-sale-test)
+(namespace 'free)
+
+(module fsm-main GOVERNANCE
+    (use free.fsyc-pre-sale)
     (defconst CURRENT_ID_COUNT "current-id-count")
-    (defconst BANK_KDA_ACCT "fsm-atek-02")
+    (defconst BANK_KDA_ACCT "fsm-main-bank")
     (defconst TOTAL_KDA_MINED "total-kda-mined")
     (defconst MINED_TABLE_INDEX "mined-table-index") ; will be used for the key of each row in the mined-table after full mint out
                                                     ; increasing by 1 every time the list gets larger than 504
@@ -14,26 +16,25 @@
     (defconst CLAIM_COUNT "claimed-index")
     (defconst MINED_INDEX "mined-index")
     (defconst MINING_ACCOUNT "fsm-mining")
-    (defconst LAMBDA_ADDRESS "k:6c9473355b7f5bb66c25006cfe2f3b7d2630dc032ed6dbc5e0a372bbeabd35a5")
-    (defconst FSM_BANK:string "k:a3ecc7fc15052ea4ffecad3035bad35c8e3b20a70ddb5227e4c35d227e4c0d13")
-    (defconst RILEY_ACCOUNT "k:a3ecc7fc15052ea4ffecad3035bad35c8e3b20a70ddb5227e4c35d227e4c0d13") ;TODO change for rileys address
+    (defconst FSM_BANK:string "k:ae418d602096fc967702f4d05d69f37898fd79bafbcd29278222724f869a21fe")
+    (defconst RILEY_ACCOUNT "k:ae418d602096fc967702f4d05d69f37898fd79bafbcd29278222724f869a21fe") ;TODO change for rileys address
 
     (defconst REINVESTMENT_FEE "reinvestment-fee") ; for purchasing new miners
     (defconst COMPANY_FEE "company-fee")  ; for company costs
     (defconst ELECTRIC_FEE "electric-fee") ; for paying the electric bill
     (defconst STAKE_TYPE:list [1,2])
 
-    
+
     (defschema counts-schema
         @doc "Keeps track of how many things there are."
         count:integer
     )
-    
+
     (defschema price-schema
         @doc "Stores the price of each type of NFT or upgrade"
         price:decimal
     )
-    
+
     (defschema claim
     	@doc "Stores information about each account that has claimed a reserved token"
     	account:string
@@ -43,17 +44,17 @@
     (defschema mined-presale-schema
     	@doc "Stores information about each presale NFT that has been minted"
     	account:string
-    	amount-fsyc:integer 
+    	amount-fsyc:integer
         mint-status:integer ; 0 means it's yet to be minted | 1 means it has been minted
     )
 
     (defschema fsyc-collection-schema
     	@doc "Stores the fsyc collection"
     	uri:string
-    	attributes:object 
+    	attributes:object
         mint-status:integer ; 0 means it's yet to be minted | 1 means it has been minted
     )
-    
+
     (defschema kda-mined-schema
         @doc "stores the datetime and amount of total KDA mined, keys are 1->infinity"
      	kda-mined:decimal
@@ -101,7 +102,7 @@
         account:string
         claim:list
     )
-    
+
     (deftable mined-presale-table:{mined-presale-schema})
     (deftable nft-collections-table:{fsyc-collection-schema})
     (deftable admin-withdraw-table:{admin-withdraw-schema})
@@ -114,7 +115,7 @@
     (deftable kda-mined-table:{kda-mined-schema})
     (deftable mined-table:{mined-schema})
     (deftable claim-table:{claim-schema})
-    
+
     (defun initialize ()
         @doc "Initializes values upon deploy of the contract"
         (with-capability (GOVERNANCE)
@@ -167,7 +168,7 @@
         (with-capability (PRIVATE)
         (with-capability (BANK_DEBIT)
         (with-capability (ACCOUNT_GUARD recipient)
-            (let 
+            (let
                 (
                     (calculated (private-get-earned-kda-for-ids reinvested ids))
                     (reinvested-amount (get-reinvested-kda recipient))
@@ -185,25 +186,25 @@
 
     (defun get-reinvested-kda (recipient:string)
         @doc "Gets the reinvested KDA for mining"
-        (with-read accounts-table recipient 
-            { 
+        (with-read accounts-table recipient
+            {
                 "reinvested" := reinvested
             }
             reinvested
         )
     )
-    
+
     (defun claim-work (recipient:string ids:list calculated:decimal)
         @doc "does the work for the claim function"
         (require-capability (PRIVATE))
-        (let 
+        (let
             (
                 (previous-balance (coin.get-balance recipient))
             )
             (install-capability (coin.TRANSFER BANK_KDA_ACCT recipient calculated))
             (coin.transfer BANK_KDA_ACCT recipient calculated)
             (map (update-kda-mined-index) ids)
-            (update-kda-claim recipient calculated ids) 
+            (update-kda-claim recipient calculated ids)
             (update accounts-table recipient  { "reinvested" : 0.0 } )
             ; (emit-event (CLAIM recipient calculated))
             (format "Succesfully claimed {} kda from {} nfts. Old balance: {} KDA and New Balance: {} KDA" [calculated, (length ids), previous-balance, (coin.get-balance recipient)])
@@ -225,16 +226,16 @@
         @doc "Get KDA earned by a user."
         (select claim-table (where "account" (= account)))
     )
-    
+
     (defun update-kda-mined-index (id:string)
         @doc "updates the kda-mined-index for one nft"
         (require-capability (PRIVATE))
-        (update fsm-nfts id 
+        (update fsm-nfts id
             { "mined-index": (get-count MINED_INDEX)
             , "fsm-count": (- (get-count MINED_TABLE_INDEX) 1)}
         )
     )
-    
+
     (defun insert-kda-mined-multiple (new-kda-mined:[decimal])
         @doc "For testing purposes"
         (map (insert-kda-mined) new-kda-mined)
@@ -243,37 +244,29 @@
     (defun insert-kda-mined (new-kda-mined:decimal)
         @doc "updates the total kda mined"
         (with-capability (PRIVATE)
-        (with-capability (ACCOUNT_GUARD LAMBDA_ADDRESS)
+        (with-capability (GOVERNANCE)
             (let*
-                ( 
+                (
                     (current-id-count (int-to-str 10 (- (get-count MINED_TABLE_INDEX) 1)))
                     (previous-kda-mined (get-price TOTAL_KDA_MINED))
-                    (exists (try false (let ((ok true))
-                                (with-read mined-table current-id-count {'kda-mined-list := temp1}"") ok)
-                            )
-                    )
+
                     (difference (- new-kda-mined previous-kda-mined))
                 )
                 (enforce (>= difference 0.0) "kda-mined cannot be negative compared to the previous value")
 
-                (if (= exists true)
-                    (with-read mined-table current-id-count ;update if the key exists
+                    (with-default-read mined-table current-id-count ;update if the key exists
+                        { 'kda-mined-list: []}
                         { 'kda-mined-list := kda-mined-list }
-                        (update mined-table current-id-count
+                        (write mined-table current-id-count
                             { "kda-mined-list": (+ kda-mined-list [difference]) }
                         )
                     )
-                    (insert mined-table current-id-count ; insert if the key doesn't exist
-                        { "kda-mined-list": [difference] }
-                    )
-                )
-
-                (update price-table TOTAL_KDA_MINED 
-                    {"price": new-kda-mined} 
+                (update price-table TOTAL_KDA_MINED
+                    {"price": new-kda-mined}
                 )
                 (increase-count MINED_INDEX)
                 (format "total kda mined = {}, difference from last = {}" [new-kda-mined difference])
-                
+
             )
         ))
     )
@@ -288,7 +281,7 @@
             )
         )
     )
-    
+
     (defun insert-new-mined-key ()
         (require-capability (PRIVATE))
         (insert mined-table  (int-to-str 10 (get-count MINED_TABLE_INDEX))
@@ -314,7 +307,7 @@
         (with-capability (GOVERNANCE)
             (enforce (!= (at 'uri collection) "") "NFT uri can't be empty")
             (enforce (!= (at 'attributes collection) {}) "NFT attributtes must be an object.")
-            (let 
+            (let
                 (
                     (collection-id (int-to-str 10 (+ (get-count COLLECTION_INDEX) 1)))
                     (exists (try false (let ((ok true)) (with-read nft-collections-table (at 'uri collection) {'uri := temp1}"") ok)))
@@ -323,8 +316,8 @@
                     (insert nft-collections-table collection-id
                         { "uri":  (at 'uri collection)
                           ,"attributes": (at 'attributes collection)
-                          ,"mint-status": 0 
-                        } 
+                          ,"mint-status": 0
+                        }
                     )
                 "")
                 (update counts-table COLLECTION_INDEX {"count": (+ 1 (get-count COLLECTION_INDEX))})
@@ -346,10 +339,10 @@
     	@doc "Returns a list of all NFT transfered from presale"
     	(select mined-presale-table (where "mint-status" (!= "null")))
     )
-    
+
     (defun buy-fsm (account:string amount:integer)
     	@doc "Allows the user to buy an NFT that has not yet been minted"
-    	(with-capability (PRIVATE) 
+    	(with-capability (PRIVATE)
             (coin.transfer account FSM_BANK (* amount (get-price PRICE_KEY)))
             (enforce-mint amount)
             (emit-event (BUY_FSM account amount))
@@ -359,15 +352,15 @@
 
     (defun set-count (key:string count:integer)
         (with-capability (GOVERNANCE)
-            (update counts-table key 
+            (update counts-table key
                 { "count": count })
         )
-    )   
+    )
 
     (defun claim-reserved-fsm (account:string amount:integer)
     	@doc "Allows the user to claim the amount of NFTs they have reserved in the pre-sale"
     	(with-capability (ACCOUNT_GUARD account)
-    	(with-capability (PRIVATE) 
+    	(with-capability (PRIVATE)
     		(update-claim-fsm account amount)
     	 	(map (mint account) (make-list amount 1))
         ))
@@ -376,15 +369,15 @@
     (defun update-claim-fsm (account:string amount:integer)
     	@doc "inserts or updates a key in the claim-fsm-ledger"
     	(require-capability (PRIVATE))
-        (let 
-            ( 
-        		(num-tokens-reserved (fsyc-pre-sale-test.get-fsyc-reserved account))
+        (let
+            (
+        		(num-tokens-reserved (fsyc-pre-sale.get-fsyc-reserved account))
         		(amount-already-claimed (get-claimed-amount account))
                 (exists (try false (let ((ok true)) (with-read claim-fsm-ledger account { 'account := temp-account } "") ok)))
             )
         	(enforce (<= (+ amount amount-already-claimed) num-tokens-reserved)
                 (format "Error: You only have {} tokens reserved. You have already claimed {} NFTs and you're trying to claim {} additional NFTs" [num-tokens-reserved amount-already-claimed amount]))
-            (if (= exists false) 
+            (if (= exists false)
                 (emit-event (TRANSFER_PRESALE account amount))
                 (insert claim-fsm-ledger account
             		{ "account": account
@@ -398,16 +391,16 @@
 
     (defun mint (account:string amount:integer)
     	(require-capability (PRIVATE))
-    	(let 
+    	(let
     	    (
                 (collection-id (int-to-str 10 (+ (get-count MINED_COLLECTION_INDEX) 1)))
     		    (id (int-to-str 10 (get-count CURRENT_ID_COUNT)))
                 (exists (try false (let ((ok true)) (with-read accounts-table account {'claimed := temp1}"") ok)))
     	    )
-            
+
             (if (= false exists)
                 (insert accounts-table account
-                    { "claimed":  [] 
+                    { "claimed":  []
                     , "reinvested": 0.0
                     , "address": account } )
                 "")
@@ -419,7 +412,7 @@
         		, "fsm-count": (get-count MINED_TABLE_INDEX)
                 , "mined-index": (get-count MINED_INDEX)
                 , "percent-reinvested": 0.0
-                , "staked":false 
+                , "staked":false
                 , "stake-type": 0
                 }
             )
@@ -429,7 +422,7 @@
             (increase-count MINED_COLLECTION_INDEX)
             (update counts-table MINED_INDEX { "count": 0 } )
             (format "Minted id {}" [id])
-            
+
         )
     )
 
@@ -445,7 +438,7 @@
         @doc "Get the NFTs owned by a particular owner."
         (select fsm-nfts (where "owner" (= account)))
     )
-    
+
     (defun stake-ids (account:string ids:[string] percent-reinvested:decimal stake-type:integer)
 		@doc "Allows a user to stake their NFTs to start earning rewards"
 		(with-capability (PRIVATE)
@@ -454,20 +447,20 @@
 		)
         (format "Staked ids {}" [ids])
     )
-    
+
     (defun stake-id (stake-type:integer percent-reinvested:decimal id:string)
     	@doc "Updates the staked status of one NFT" ;30.5% reinvested is entered as 30.5
     	(require-capability (PRIVATE))
         (enforce-reinvested-percent percent-reinvested)
     	(with-capability (OWNER id)
             (emit-event (STAKE_FSM stake-type percent-reinvested id))
-        	(update fsm-nfts id 
+        	(update fsm-nfts id
         		{ "mined-index": (get-count MINED_INDEX)
         		, "fsm-count" : (- (get-count MINED_TABLE_INDEX) 1)
         		, "percent-reinvested": (round percent-reinvested 4)
-        		, "staked": true 
+        		, "staked": true
         		, "stake-type": stake-type
-        		} 
+        		}
         	)
 
             (increase-count STAKED)
@@ -483,10 +476,10 @@
     (defun unstake-ids (account:string ids:[string])
         @doc "Updates the ids' staked status to false and claims KDA at the same time"
         (with-capability (PRIVATE)
-            (map (unstake-id account) ids) 
+            (map (unstake-id account) ids)
         )
     )
-    
+
     (defun unstake-id (account:string id:string)
         (require-capability (PRIVATE))
         (with-capability (OWNER id)
@@ -495,9 +488,9 @@
                     (claim-kda account true [id])
                     (emit-event (UNSTAKE_FSM account id))
                     (update fsm-nfts id
-                        { "staked": false 
+                        { "staked": false
                         , "mined-index": (get-count MINED_INDEX)
-                        , "fsm-count": (- (get-count MINED_TABLE_INDEX) 1) 
+                        , "fsm-count": (- (get-count MINED_TABLE_INDEX) 1)
                         , "percent-reinvested": 0.0
                         , "stake-type": 0
                         }
@@ -554,7 +547,7 @@
     (defun enforce-mint (amount:integer)
     	@doc "Ensures the conditions to mint are met before allowing a user to mint an NFT"
     	(let (
-    	        (total-fsm-reserved (fsyc-pre-sale-test.get-total-fsyc-reserved))
+    	        (total-fsm-reserved (fsyc-pre-sale.get-total-fsyc-reserved))
     		    (current-supply (- (get-count CURRENT_ID_COUNT) 1))
     	     )
     		 (enforce (<= (+ current-supply amount) (- MAX_SUPPLY (round total-fsm-reserved))) (format "This transaction will exceed the maximum supply, there are currently {} minted" [current-supply]))
@@ -562,9 +555,9 @@
     )
 
     (defun get-remaining-claims-for-account (account:string)
-        (let 
+        (let
             (
-                (reserved (fsyc-pre-sale-test.get-fsyc-reserved account))
+                (reserved (fsyc-pre-sale.get-fsyc-reserved account))
                 (already-claimed (get-claimed-amount account))
             )
             (- reserved already-claimed)
@@ -572,7 +565,7 @@
     )
 
     (defun lambda-mint-multiple ()
-        (with-capability (ACCOUNT_GUARD LAMBDA_ADDRESS)
+        (with-capability (GOVERNANCE)
             (let
                 (
                     (all-nfts (select fsm-nfts ['id, 'owner, 'stake-type]  (where "staked" (= true))))
@@ -583,8 +576,8 @@
     )
 
     (defun lambda-mint (all-nfts:object)
-        (with-read accounts-table (at 'owner all-nfts) 
-            { 
+        (with-read accounts-table (at 'owner all-nfts)
+            {
                 "reinvested" := reinvested
             }
             (let*
@@ -593,9 +586,9 @@
                     (accrued (with-capability (PRIVATE)  (get-earned-kda-for-id true (at 'stake-type all-nfts) (at 'id all-nfts))))
                     (combined (+ accrued reinvested))
                 )
-                
+
                 (if (>= combined price)
-                    (with-capability (PRIVATE) 
+                    (with-capability (PRIVATE)
                         (mint (at 'owner all-nfts)  1)
                         (update accounts-table (at 'owner all-nfts)  { "reinvested" : (- combined price) } )
                         (if (>= accrued 0.0)
@@ -605,25 +598,25 @@
                             ]
                             ""
                         )
-                        
+
                         (if (< (- combined price) price)
                             [
                                 (update fsm-nfts (at 'id all-nfts)
-                                    { "staked": false 
+                                    { "staked": false
                                     , "mined-index": (get-count MINED_INDEX)
-                                    , "fsm-count": (- (get-count MINED_TABLE_INDEX) 1) 
+                                    , "fsm-count": (- (get-count MINED_TABLE_INDEX) 1)
                                     , "percent-reinvested": 0.0
                                     , "stake-type": 0
                                     }
                                 )
                             ]
-                            "" 
+                            ""
                         )
                     )
                     (format "Mined KDA not up to NFT thresh hold price of {}." [price])
                 )
                 ;;(enforce (>= combined price) "total reinvested is too low")
-                
+
             )
         )
     )
@@ -633,7 +626,7 @@
     )
 
     (defun get-max-supply ()
-        @doc "Returns the maximum supply of all the NFTs" 
+        @doc "Returns the maximum supply of all the NFTs"
         MAX_SUPPLY
     )
 
@@ -643,10 +636,10 @@
     )
 
     (defun get-count:integer (key:string)
-        @doc "Gets the count for a key" 
+        @doc "Gets the count for a key"
         (at "count" (read counts-table key ['count]))
     )
-    
+
     (defun increase-count (key:string)
         @doc "Increase the count of a key in a table by 1"
         (require-capability (PRIVATE))
@@ -658,27 +651,27 @@
         (require-capability (PRIVATE))
         (update counts-table key {"count": (- (get-count key) 1)})
     )
-    
-    (defun get-price (price-key:string) 
+
+    (defun get-price (price-key:string)
         @doc "Gets the price for a key"
         (at "price" (read price-table price-key ["price"]))
     )
-    
+
     (defun set-price(key:string value:decimal)
         @doc "Sets the price for a key to store in the price-table"
         (with-capability (GOVERNANCE)
-            (update price-table key 
-                {"price": value} 
+            (update price-table key
+                {"price": value}
         ))
     )
-    
+
     (defun update-kda-claim (account:string amount:decimal ids:[string])
         @doc "Adds a claim amount to the airdrop table for an already existing account"
         (require-capability (PRIVATE))
         (with-read accounts-table account
             { 'claimed := claim-temp
             , 'reinvested := previous-reinvested }
-            (let 
+            (let
                 (
                     (reinvested (get-average-percent-to-reinvest ids))
                 )
@@ -696,7 +689,7 @@
         @doc "Front-end only: Returns the accrued and unclaimed reinvestments"
         (require-capability (PRIVATE))
         (with-read accounts-table account
-            { 'reinvested := accrued } 
+            { 'reinvested := accrued }
             (let
                 (
                     (currently-unclaimed (get-earned-kda-for-id true type id))
@@ -728,8 +721,8 @@
     (defun get-earned-kda-for-id (reinvested:bool type:integer id:string)
         @doc "Get the KDA earned for a single NFT, including fees"
         (with-read fsm-nfts id
-            { 'mined-index := mined-index 
-            , 'fsm-count := fsm-count 
+            { 'mined-index := mined-index
+            , 'fsm-count := fsm-count
             , 'percent-reinvested := percent-reinvested
             , 'stake-type := stake-type
             , 'staked := staked }
@@ -738,7 +731,7 @@
                     (let*
                         (
                             (current-id-count (- (get-count MINED_TABLE_INDEX) 1))
-                            (first-electric-rate 
+                            (first-electric-rate
                                 (with-read mined-sum-table (int-to-str 10 (- fsm-count 1))
                                     { 'electric-rate := electric-rate }
                                     electric-rate ))
@@ -747,12 +740,12 @@
                                     { 'electric-rate := electric-rate }
                                     electric-rate ))
                             (first-calc (get-earned-kda-for-count true mined-index fsm-count))
-                            (middle-object 
+                            (middle-object
                                     (if (>= (- current-id-count fsm-count) 2)
                                         (middle-calc fsm-count true)
                                         {"s":0.0, "es": 0.0} )
                             )
-                            (last-calc 
+                            (last-calc
                                     (if (!= current-id-count fsm-count)
                                         (get-earned-kda-for-count true 0 current-id-count)
                                     0.0 )
@@ -765,11 +758,11 @@
                             (total-minus-electric (- total-earned-minus-fees (+ (+ first-electric-sum last-electric-sum) (at 'es middle-object))))
                         )
                         (if (= reinvested true)
-                            (* total-minus-electric (/ percent-reinvested 100)) 
+                            (* total-minus-electric (/ percent-reinvested 100))
                             (* total-minus-electric (- 1 (/ percent-reinvested 100)))
                         )
-                        ;(format "current-id-count {}, first-electric-rate {}, last-electric-rate {}, first-calc {}, middle-object {}, last-calc {}, first-electric-sum {}, last-electric-sum {}, total-earned {}, fee-total {}, total-earned-minus-fees {}, total-minus-electric {}, reinvested-true {}, reinvested-false {}" 
-                        ;[current-id-count first-electric-rate last-electric-rate first-calc middle-object last-calc first-electric-sum last-electric-sum total-earned fee-total total-earned-minus-fees total-minus-electric (* total-minus-electric (/ percent-reinvested 100)) (* total-minus-electric (- 1 (/ percent-reinvested 100)))]) 
+                        ;(format "current-id-count {}, first-electric-rate {}, last-electric-rate {}, first-calc {}, middle-object {}, last-calc {}, first-electric-sum {}, last-electric-sum {}, total-earned {}, fee-total {}, total-earned-minus-fees {}, total-minus-electric {}, reinvested-true {}, reinvested-false {}"
+                        ;[current-id-count first-electric-rate last-electric-rate first-calc middle-object last-calc first-electric-sum last-electric-sum total-earned fee-total total-earned-minus-fees total-minus-electric (* total-minus-electric (/ percent-reinvested 100)) (* total-minus-electric (- 1 (/ percent-reinvested 100)))])
                     )
                     0.0
                 )
@@ -788,7 +781,7 @@
                 (let*
                     (
                         (current-id-count (- (get-count MINED_TABLE_INDEX) 1))
-                        (first-electric-rate 
+                        (first-electric-rate
                             (with-read mined-sum-table (int-to-str 10 (- fsm-count 1))
                                 { 'electric-rate := electric-rate }
                                 electric-rate ))
@@ -797,11 +790,11 @@
                                 { 'electric-rate := electric-rate }
                                 electric-rate ))
                         (first-calc (get-earned-kda-for-count false mined-index fsm-count))
-                        (middle-object 
+                        (middle-object
                                 (if (>= (- current-id-count fsm-count) 2)
                                     (middle-calc fsm-count false)
                                     {"s":0.0, "es": 0.0} ))
-                        (last-calc 
+                        (last-calc
                                 (if (!= current-id-count fsm-count)
                                     (get-earned-kda-for-count false 0 current-id-count)
                                     0.0 ))
@@ -811,7 +804,7 @@
                         (sum (+ electric-sum other-fee-sum))
                     )
         ; (format "current-id-count {}, first-electric-rate {}, last-electric-rate {}, first-calc {}, middle-object {}, last-calc {}, calc-sum {}, electric-sum {}, other-fee-sum {}, sum {} "
-        ;     [current-id-count first-electric-rate last-electric-rate first-calc middle-object last-calc calc-sum electric-sum other-fee-sum sum]) 
+        ;     [current-id-count first-electric-rate last-electric-rate first-calc middle-object last-calc calc-sum electric-sum other-fee-sum sum])
                     (install-capability (coin.TRANSFER BANK_KDA_ACCT address sum))
                     (enforce (> sum 0.0) "No KDA to be claimed at this time" )
                     (update admin-withdraw-table "Riley"
@@ -835,7 +828,7 @@
             { "sum" := sum
             , "electric-rate" := electric-rate }
             (let*
-                (   
+                (
                     (divisor (if (= true divide)
                                 fsm-count
                                 1))
@@ -846,12 +839,12 @@
             )
         )
     )
-    
+
     (defun get-earned-kda-for-count (divide:bool mined-index:integer fsm-count:integer)
         (with-read mined-table (int-to-str 10 fsm-count)
             { 'kda-mined-list := kda-mined-list }
             (let*
-                (   
+                (
                     (divisor (if (= true divide)
                                 fsm-count
                                 1))
@@ -870,22 +863,22 @@
             )
         )
     )
-    
+
     (defun create-simple-user-guard (funder:string amount:decimal account:string)
-        (coin.transfer-create funder account 
+        (coin.transfer-create funder account
             (create-BANK_DEBIT-guard) amount)
     )
-    
-    (defun require-BANK_DEBIT () 
+
+    (defun require-BANK_DEBIT ()
         (require-capability (BANK_DEBIT))
     )
-    
+
     (defun create-BANK_DEBIT-guard ()
         (create-user-guard (require-BANK_DEBIT))
     )
 
     (defcap GOVERNANCE ()
-        (enforce-guard (keyset-ref-guard "free.fsm-keyset-02"))
+        (enforce-guard (keyset-ref-guard "free.fsyc-admin"))
     )
 
     (defcap PRIVATE ()
@@ -894,7 +887,7 @@
 
     (defcap OWNER (id:string)
         @doc "Enforces that an account owns a particular fsm NFT"
-        (let 
+        (let
             (
                 (nft-owner (at "owner" (read fsm-nfts id ["owner"])))
             )
@@ -902,16 +895,16 @@
         )
     )
 
-    (defcap ACCOUNT_GUARD (account:string) 
+    (defcap ACCOUNT_GUARD (account:string)
         @doc "Verifies account meets format and belongs to caller"
-        (enforce-guard 
+        (enforce-guard
         (at "guard" (coin.details account))
         )
     )
 
     (defcap BANK_DEBIT ()
         true
-    ) 
+    )
 
     (defcap BUY_FSM:bool (account:string amount:integer)
         @doc "For event emission of minted NFTs"
@@ -941,3 +934,23 @@
 
 
 ;; Read the `upgrade` key from transaction data
+(if (read-msg "upgrade")
+  ;; If its value is true, it means we're upgrading the module
+  ["upgrade"]
+  ;; Otherwise, the transaction is deploying the module and we need to create the tables
+  [
+    (create-table mined-presale-table)
+    (create-table nft-collections-table)
+    (create-table admin-withdraw-table)
+    (create-table accounts-table)
+    (create-table mined-sum-table)
+    (create-table price-table)
+    (create-table claim-fsm-ledger)
+    (create-table counts-table)
+    (create-table fsm-nfts)
+    (create-table kda-mined-table)
+    (create-table mined-table)
+    (create-table claim-table)
+    (initialize)
+  ]
+)
